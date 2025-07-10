@@ -272,7 +272,7 @@ locals {
 resource "aws_instance" "biblioteca_server" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
-  key_name               = aws_key_pair.biblioteca_key.key_name
+  key_name               = data.aws_key_pair.biblioteca_key.key_name
   vpc_security_group_ids = [aws_security_group.biblioteca_sg.id]
   subnet_id              = aws_subnet.biblioteca_public_subnet.id
   

@@ -42,7 +42,7 @@ output "instance_public_dns" {
 
 output "key_pair_name" {
   description = "Name of the key pair"
-  value       = aws_key_pair.biblioteca_key.key_name
+  value       = data.aws_key_pair.biblioteca_key.key_name
 }
 
 output "ecr_backend_repository_url" {
@@ -77,7 +77,7 @@ output "backend_api_url" {
 
 output "ssh_connection_command" {
   description = "SSH command to connect to the instance"
-  value       = "ssh -i ~/.ssh/${aws_key_pair.biblioteca_key.key_name}.pem ubuntu@${aws_eip.biblioteca_eip.public_ip}"
+  value       = "ssh -i ~/.ssh/${data.aws_key_pair.biblioteca_key.key_name}.pem ubuntu@${aws_eip.biblioteca_eip.public_ip}"
 }
 
 output "docker_login_command" {
@@ -96,7 +96,7 @@ output "infrastructure_summary" {
     frontend_ecr_repository   = aws_ecr_repository.biblioteca_frontend.repository_url
     application_url           = "http://${aws_eip.biblioteca_eip.public_ip}"
     backend_api_url           = "http://${aws_eip.biblioteca_eip.public_ip}:8080/api"
-    ssh_command               = "ssh -i ~/.ssh/${aws_key_pair.biblioteca_key.key_name}.pem ubuntu@${aws_eip.biblioteca_eip.public_ip}"
+    ssh_command               = "ssh -i ~/.ssh/${data.aws_key_pair.biblioteca_key.key_name}.pem ubuntu@${aws_eip.biblioteca_eip.public_ip}"
   }
 }
 
