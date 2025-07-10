@@ -1,0 +1,320 @@
+---
+# Tarefas para configuração de monitoramento
+
+- name: Install monitoring tools
+  apt:
+    name:
+      - htop
+      - iotop
+      - nethogs
+      - ncdu
+      - tree
+      - jq
+      - curl
+      - wget
+    state: present
+
+- name: Download and install CloudWatch agent
+  block:
+    - name: Download CloudWatch agent
+      get_url:
+        url: "https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb"
+        dest: /tmp/amazon-cloudwatch-agent.deb
+        mode: '0644'
+
+    - name: Install CloudWatch agent
+      apt:
+        deb: /tmp/amazon-cloudwatch-agent.deb
+        state: present
+
+    - name: Clean up CloudWatch agent package
+      file:
+        path: /tmp/amazon-cloudwatch-agent.deb
+        state: absent
+
+- name: Create CloudWatch agent configuration
+  copy:
+    content: |
+      {
+          "agent": {
+              "metrics_collection_interval": 60,
+              "run_as_user": "cwagent"
+          },
+          "logs": {
+              "logs_collected": {
+                  "files": {
+                      "collect_list": [
+                          {
+                              "file_path": "/var/log/biblioteca/monitor.log",
+                              "log_group_name": "/aws/ec2/biblioteca/monitor",
+                              "log_stream_name": "{instance_id}",
+                              "timezone": "UTC"
+                          },
+                          {
+                              "file_path": "/var/log/biblioteca/backup.log",
+                              "log_group_name": "/aws/ec2/biblioteca/backup",
+                              "log_stream_name": "{instance_id}",
+                              "timezone": "UTC"
+                          },
+                          {
+                              "file_path": "/var/log/syslog",
+                              "log_group_name": "/aws/ec2/biblioteca/syslog",
+                              "log_stream_name": "{instance_id}",
+                              "timezone": "UTC"
+                          }
+                      ]
+                  }
+              }
+          },
+          "metrics": {
+              "namespace": "Biblioteca/EC2",
+              "metrics_collected": {
+                  "cpu": {
+                      "measurement": [
+                          "cpu_usage_idle",
+                          "cpu_usage_iowait",
+                          "cpu_usage_user",
+                          "cpu_usage_system"
+                      ],
+                      "metrics_collection_interval": 60,
+                      "totalcpu": false
+                  },
+                  "disk": {
+                      "measurement": [
+                          "used_percent"
+                      ],
+                      "metrics_collection_interval": 60,
+                      "resources": [
+                          "*"
+                      ]
+                  },
+                  "diskio": {
+                      "measurement": [
+                          "io_time"
+                      ],
+                      "metrics_collection_interval": 60,
+                      "resources": [
+                          "*"
+                      ]
+                  },
+                  "mem": {
+                      "measurement": [
+                          "mem_used_percent"
+                      ],
+                      "metrics_collection_interval": 60
+                  },
+                  "netstat": {
+                      "measurement": [
+                          "tcp_established",
+                          "tcp_time_wait"
+                      ],
+                      "metrics_collection_interval": 60
+                  },
+                  "swap": {
+                      "measurement": [
+                          "swap_used_percent"
+                      ],
+                      "metrics_collection_interval": 60
+                  }
+              }
+          }
+      }
+    dest: /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+    mode: '0644'
+
+- name: Start CloudWatch agent
+  shell: |
+    /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+    -a fetch-config \
+    -m ec2 \
+    -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
+    -s
+  failed_when: false
+
+- name: Create health check script
+  copy:
+    content: |
+      #!/bin/bash
+      
+      # Health check script for Biblioteca application
+      
+      set -e
+      
+      log() {
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+      }
+      
+      # Check if containers are running
+      log "Checking container status..."
+      cd {{ app_directory }}
+      
+      if ! docker-compose ps | grep -q "Up"; then
+          log "ERROR: Some containers are not running"
+          docker-compose ps
+          exit 1
+      fi
+      
+      # Check backend health
+      log "Checking backend health..."
+      if ! curl -f -s http://localhost:8080/api/livros/estatisticas > /dev/null; then
+          log "ERROR: Backend health check failed"
+          exit 1
+      fi
+      
+      # Check frontend
+      log "Checking frontend..."
+      if ! curl -f -s http://localhost > /dev/null; then
+          log "ERROR: Frontend health check failed"
+          exit 1
+      fi
+      
+      # Check disk space
+      log "Checking disk space..."
+      DISK_USAGE=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+      if [ "$DISK_USAGE" -gt 80 ]; then
+          log "WARNING: Disk usage is ${DISK_USAGE}%"
+      fi
+      
+      # Check memory usage
+      log "Checking memory usage..."
+      MEM_USAGE=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
+      if [ "$MEM_USAGE" -gt 80 ]; then
+          log "WARNING: Memory usage is ${MEM_USAGE}%"
+      fi
+      
+      log "All health checks passed"
+    dest: "{{ app_directory }}/health-check.sh"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0755'
+
+- name: Create performance monitoring script
+  copy:
+    content: |
+      #!/bin/bash
+      
+      # Performance monitoring script for Biblioteca application
+      
+      log() {
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+      }
+      
+      log "=== Performance Report ==="
+      
+      # System load
+      echo "System Load: $(uptime | awk -F'load average:' '{print $2}')"
+      
+      # CPU usage
+      echo "CPU Usage: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)%"
+      
+      # Memory usage
+      echo "Memory Usage: $(free -h | awk 'NR==2{printf "%.1f%%", $3*100/$2}')"
+      
+      # Disk usage
+      echo "Disk Usage: $(df -h / | awk 'NR==2{print $5}')"
+      
+      # Docker stats
+      echo ""
+      echo "=== Docker Container Stats ==="
+      docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
+      
+      # Application metrics
+      echo ""
+      echo "=== Application Metrics ==="
+      if curl -f -s http://localhost:8080/api/livros/estatisticas > /tmp/stats.json 2>/dev/null; then
+          echo "Total Books: $(jq -r '.total' /tmp/stats.json)"
+          echo "Available Books: $(jq -r '.disponiveis' /tmp/stats.json)"
+          rm -f /tmp/stats.json
+      else
+          echo "Unable to fetch application metrics"
+      fi
+      
+      # Network connections
+      echo ""
+      echo "=== Network Connections ==="
+      echo "Active connections: $(netstat -an | grep ESTABLISHED | wc -l)"
+      echo "Listening ports: $(netstat -tln | grep LISTEN | wc -l)"
+      
+      log "=== End Performance Report ==="
+    dest: "{{ app_directory }}/performance.sh"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0755'
+
+- name: Setup monitoring cron jobs
+  cron:
+    name: "{{ item.name }}"
+    minute: "{{ item.minute }}"
+    hour: "{{ item.hour }}"
+    job: "{{ item.job }}"
+    user: "{{ app_user }}"
+  loop:
+    - name: "Health check every 5 minutes"
+      minute: "*/5"
+      hour: "*"
+      job: "cd {{ app_directory }} && ./health-check.sh >> /var/log/biblioteca/health.log 2>&1"
+    - name: "Performance report every hour"
+      minute: "0"
+      hour: "*"
+      job: "cd {{ app_directory }} && ./performance.sh >> /var/log/biblioteca/performance.log 2>&1"
+
+- name: Create monitoring dashboard script
+  copy:
+    content: |
+      #!/bin/bash
+      
+      # Simple monitoring dashboard
+      
+      clear
+      echo "========================================="
+      echo "    Biblioteca Application Dashboard"
+      echo "========================================="
+      echo ""
+      
+      # System info
+      echo "Server: $(hostname)"
+      echo "Uptime: $(uptime -p)"
+      echo "Date: $(date)"
+      echo ""
+      
+      # Container status
+      echo "=== Container Status ==="
+      cd {{ app_directory }}
+      docker-compose ps
+      echo ""
+      
+      # Resource usage
+      echo "=== Resource Usage ==="
+      echo "CPU: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)%"
+      echo "Memory: $(free -h | awk 'NR==2{printf "%.1f%%", $3*100/$2}')"
+      echo "Disk: $(df -h / | awk 'NR==2{print $5}')"
+      echo ""
+      
+      # Application health
+      echo "=== Application Health ==="
+      if curl -f -s http://localhost:8080/api/livros/estatisticas > /dev/null; then
+          echo "Backend: ✅ Healthy"
+      else
+          echo "Backend: ❌ Unhealthy"
+      fi
+      
+      if curl -f -s http://localhost > /dev/null; then
+          echo "Frontend: ✅ Healthy"
+      else
+          echo "Frontend: ❌ Unhealthy"
+      fi
+      echo ""
+      
+      # Recent logs
+      echo "=== Recent Logs (last 5 lines) ==="
+      tail -5 /var/log/biblioteca/monitor.log 2>/dev/null || echo "No monitor logs found"
+      echo ""
+      
+      echo "========================================="
+      echo "Dashboard updated: $(date)"
+      echo "========================================="
+    dest: "{{ app_directory }}/dashboard.sh"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0755'
+

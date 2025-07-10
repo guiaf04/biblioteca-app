@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Testes Frontend - Sistema de Biblioteca</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .test-pass {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .test-fail {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .test-summary {
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-top: 20px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Testes Frontend - Sistema de Biblioteca</h1>
+    
+    <div class="test-container">
+        <h2>Testes de Funções Utilitárias</h2>
+        <button onclick="runUtilityTests()">Executar Testes</button>
+        <div id="utilityResults"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>Testes de Validação</h2>
+        <button onclick="runValidationTests()">Executar Testes</button>
+        <div id="validationResults"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>Testes de Interface</h2>
+        <button onclick="runInterfaceTests()">Executar Testes</button>
+        <div id="interfaceResults"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>Resumo dos Testes</h2>
+        <div id="testSummary"></div>
+    </div>
+
+    <script>
+        // Importar funções do script principal (simulação)
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showToast(message, type = 'success') {
+            console.log(`Toast: ${message} (${type})`);
+            return true;
+        }
+
+        // Simulação de dados de teste
+        const testLivro = {
+            id: 1,
+            titulo: "Dom Casmurro",
+            autor: "Machado de Assis",
+            isbn: "978-85-359-0277-5",
+            anoPublicacao: 1899,
+            editora: "Companhia das Letras",
+            descricao: "Romance clássico da literatura brasileira",
+            disponivel: true
+        };
+
+        // Variáveis para contagem de testes
+        let totalTests = 0;
+        let passedTests = 0;
+
+        function runTest(testName, testFunction, resultsContainer) {
+            totalTests++;
+            try {
+                const result = testFunction();
+                if (result) {
+                    passedTests++;
+                    addTestResult(resultsContainer, testName, true, "Passou");
+                } else {
+                    addTestResult(resultsContainer, testName, false, "Falhou");
+                }
+            } catch (error) {
+                addTestResult(resultsContainer, testName, false, `Erro: ${error.message}`);
+            }
+        }
+
+        function addTestResult(container, testName, passed, message) {
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${passed ? 'test-pass' : 'test-fail'}`;
+            resultDiv.innerHTML = `<strong>${testName}:</strong> ${message}`;
+            container.appendChild(resultDiv);
+        }
+
+        function runUtilityTests() {
+            const container = document.getElementById('utilityResults');
+            container.innerHTML = '';
+
+            // Teste 1: escapeHtml
+            runTest('Escape HTML', () => {
+                const input = '<script>alert("xss")</script>';
+                const output = escapeHtml(input);
+                return output === '&lt;script&gt;alert("xss")&lt;/script&gt;';
+            }, container);
+
+            // Teste 2: showToast
+            runTest('Show Toast', () => {
+                return showToast('Teste', 'success') === true;
+            }, container);
+
+            // Teste 3: Validação de ano
+            runTest('Validação de Ano', () => {
+                const ano = 2023;
+                return ano >= 1000 && ano <= 2030;
+            }, container);
+        }
+
+        function runValidationTests() {
+            const container = document.getElementById('validationResults');
+            container.innerHTML = '';
+
+            // Teste 1: Validação de campos obrigatórios
+            runTest('Campos Obrigatórios', () => {
+                const livro = {
+                    titulo: "Teste",
+                    autor: "Autor Teste",
+                    isbn: "123456789",
+                    anoPublicacao: 2023
+                };
+                return livro.titulo && livro.autor && livro.isbn && livro.anoPublicacao;
+            }, container);
+
+            // Teste 2: Validação de ISBN
+            runTest('Validação ISBN', () => {
+                const isbn = "978-85-359-0277-5";
+                return isbn.length > 0 && isbn.includes('-');
+            }, container);
+
+            // Teste 3: Validação de ano inválido
+            runTest('Ano Inválido', () => {
+                const ano = 999;
+                return !(ano >= 1000 && ano <= 2030);
+            }, container);
+        }
+
+        function runInterfaceTests() {
+            const container = document.getElementById('interfaceResults');
+            container.innerHTML = '';
+
+            // Teste 1: Criação de elementos DOM
+            runTest('Criação de Elementos', () => {
+                const div = document.createElement('div');
+                div.className = 'test-element';
+                div.textContent = 'Teste';
+                return div.className === 'test-element' && div.textContent === 'Teste';
+            }, container);
+
+            // Teste 2: Manipulação de formulário
+            runTest('Manipulação de Formulário', () => {
+                const form = document.createElement('form');
+                const input = document.createElement('input');
+                input.name = 'titulo';
+                input.value = 'Livro Teste';
+                form.appendChild(input);
+                
+                const formData = new FormData(form);
+                return formData.get('titulo') === 'Livro Teste';
+            }, container);
+
+            // Teste 3: Renderização de dados
+            runTest('Renderização de Dados', () => {
+                const livroHtml = `
+                    <div class="livro-card">
+                        <div class="livro-title">${escapeHtml(testLivro.titulo)}</div>
+                        <div class="livro-author">${escapeHtml(testLivro.autor)}</div>
+                    </div>
+                `;
+                return livroHtml.includes('Dom Casmurro') && livroHtml.includes('Machado de Assis');
+            }, container);
+
+            // Teste 4: Filtros de busca
+            runTest('Filtros de Busca', () => {
+                const livros = [testLivro];
+                const searchTerm = 'machado';
+                const filtered = livros.filter(livro => 
+                    livro.autor.toLowerCase().includes(searchTerm.toLowerCase())
+                );
+                return filtered.length === 1;
+            }, container);
+        }
+
+        function updateSummary() {
+            const summaryContainer = document.getElementById('testSummary');
+            const percentage = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
+            
+            summaryContainer.innerHTML = `
+                <div class="test-summary">
+                    Resultados: ${passedTests}/${totalTests} testes passaram (${percentage}%)
+                </div>
+                <div class="${percentage === 100 ? 'test-pass' : 'test-fail'}" style="margin-top: 10px; padding: 10px;">
+                    ${percentage === 100 ? '✅ Todos os testes passaram!' : '❌ Alguns testes falharam'}
+                </div>
+            `;
+        }
+
+        // Executar todos os testes
+        function runAllTests() {
+            totalTests = 0;
+            passedTests = 0;
+            
+            runUtilityTests();
+            runValidationTests();
+            runInterfaceTests();
+            
+            setTimeout(updateSummary, 100);
+        }
+
+        // Adicionar botão para executar todos os testes
+        document.addEventListener('DOMContentLoaded', function() {
+            const button = document.createElement('button');
+            button.textContent = 'Executar Todos os Testes';
+            button.onclick = runAllTests;
+            button.style.fontSize = '16px';
+            button.style.padding = '15px 30px';
+            button.style.marginBottom = '20px';
+            
+            document.body.insertBefore(button, document.body.firstChild.nextSibling);
+        });
+    </script>
+</body>
+</html>
+

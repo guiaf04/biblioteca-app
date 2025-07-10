@@ -1,0 +1,102 @@
+---
+# Playbook principal para deploy da aplicação Biblioteca
+- name: Deploy Biblioteca Application
+  hosts: biblioteca_servers
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    app_name: biblioteca
+    app_user: ubuntu
+    app_directory: /opt/biblioteca
+    backend_image: "{{ backend_image | default('biblioteca-backend:latest') }}"
+    frontend_image: "{{ frontend_image | default('biblioteca-frontend:latest') }}"
+    aws_region: "{{ aws_region | default('us-east-1') }}"
+    
+  pre_tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      tags: [setup]
+    
+    - name: Ensure required packages are installed
+      apt:
+        name:
+          - curl
+          - wget
+          - unzip
+          - jq
+          - htop
+          - tree
+          - git
+        state: present
+      tags: [setup]
+
+  tasks:
+    - name: Include Docker installation tasks
+      include_tasks: tasks/docker.yml
+      tags: [docker]
+    
+    - name: Include AWS CLI installation tasks
+      include_tasks: tasks/aws-cli.yml
+      tags: [aws]
+    
+    - name: Include application deployment tasks
+      include_tasks: tasks/application.yml
+      tags: [app]
+    
+    - name: Include monitoring setup tasks
+      include_tasks: tasks/monitoring.yml
+      tags: [monitoring]
+    
+    - name: Include security configuration tasks
+      include_tasks: tasks/security.yml
+      tags: [security]
+
+  post_tasks:
+    - name: Verify application is running
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}:8080/api/livros/estatisticas"
+        method: GET
+        timeout: 30
+      register: backend_health
+      retries: 5
+      delay: 10
+      until: backend_health.status == 200
+      tags: [verify]
+    
+    - name: Verify frontend is accessible
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}"
+        method: GET
+        timeout: 30
+      register: frontend_health
+      retries: 5
+      delay: 10
+      until: frontend_health.status == 200
+      tags: [verify]
+    
+    - name: Display deployment summary
+      debug:
+        msg:
+          - "🎉 Deployment completed successfully!"
+          - "🌐 Application URL: http://{{ ansible_default_ipv4.address }}"
+          - "🔧 Backend API: http://{{ ansible_default_ipv4.address }}:8080/api"
+          - "📊 Health Status: Backend {{ backend_health.status }}, Frontend {{ frontend_health.status }}"
+      tags: [verify]
+
+  handlers:
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted
+        daemon_reload: yes
+    
+    - name: restart application
+      shell: |
+        cd {{ app_directory }}
+        docker-compose down
+        docker-compose up -d
+      become_user: "{{ app_user }}"
+

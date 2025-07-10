@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  backend:
+    image: {{ backend_image }}
+    container_name: biblioteca-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JAVA_OPTS=-Xmx512m -Xms256m
+      - AWS_REGION={{ aws_region }}
+    networks:
+      - biblioteca-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/livros/estatisticas"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.biblioteca.service=backend"
+      - "com.biblioteca.version=latest"
+
+  frontend:
+    image: {{ frontend_image }}
+    container_name: biblioteca-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - biblioteca-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.biblioteca.service=frontend"
+      - "com.biblioteca.version=latest"
+
+networks:
+  biblioteca-network:
+    driver: bridge
+    name: biblioteca-network
+
+volumes:
+  biblioteca-data:
+    name: biblioteca-data
+

@@ -1,0 +1,219 @@
+name: Cleanup and Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'cleanup'
+        type: choice
+        options:
+        - cleanup
+        - rollback
+        - destroy
+      environment:
+        description: 'Environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  cleanup:
+    name: Cleanup Resources
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'cleanup'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.5.0
+        
+    - name: Cleanup old ECR images
+      run: |
+        # Manter apenas as 5 imagens mais recentes
+        aws ecr describe-repositories --region ${{ env.AWS_REGION }} --query 'repositories[].repositoryName' --output text | while read repo; do
+          if [[ "$repo" == "biblioteca-"* ]]; then
+            echo "Cleaning up repository: $repo"
+            aws ecr list-images --repository-name $repo --filter tagStatus=UNTAGGED --query 'imageIds[?imageDigest!=null]' --output json | \
+            jq '.[] | select(.imageDigest != null)' | \
+            aws ecr batch-delete-image --repository-name $repo --image-ids file:///dev/stdin || true
+            
+            # Manter apenas as 5 tags mais recentes
+            aws ecr describe-images --repository-name $repo --query 'sort_by(imageDetails,&imagePushedAt)[:-5].imageDigest' --output text | \
+            while read digest; do
+              if [ ! -z "$digest" ]; then
+                aws ecr batch-delete-image --repository-name $repo --image-ids imageDigest=$digest || true
+              fi
+            done
+          fi
+        done
+        
+    - name: Cleanup unused resources
+      working-directory: ./terraform
+      run: |
+        terraform init
+        terraform refresh
+        echo "✅ Cleanup completed"
+
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'rollback'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install Ansible
+      run: |
+        pip install ansible boto3 botocore
+        
+    - name: Get EC2 instance IP
+      id: get-ip
+      run: |
+        INSTANCE_IP=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=biblioteca-server" "Name=instance-state-name,Values=running" \
+          --query 'Reservations[0].Instances[0].PublicIpAddress' \
+          --output text)
+        echo "instance_ip=$INSTANCE_IP" >> $GITHUB_OUTPUT
+        
+    - name: Setup SSH key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ steps.get-ip.outputs.instance_ip }} >> ~/.ssh/known_hosts
+        
+    - name: Rollback to previous version
+      run: |
+        # Conectar via SSH e fazer rollback
+        ssh -i ~/.ssh/id_rsa ubuntu@${{ steps.get-ip.outputs.instance_ip }} << 'EOF'
+          cd /opt/biblioteca
+          
+          # Parar containers atuais
+          docker-compose down
+          
+          # Usar imagens com tag 'latest-stable' se existirem
+          if docker images | grep -q "biblioteca.*latest-stable"; then
+            sed -i 's/:latest/:latest-stable/g' docker-compose.yml
+            docker-compose up -d
+            echo "✅ Rollback to stable version completed"
+          else
+            echo "❌ No stable version found for rollback"
+            # Tentar reiniciar com versão atual
+            docker-compose up -d
+          fi
+        EOF
+
+  destroy:
+    name: Destroy Infrastructure
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'destroy'
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.5.0
+        
+    - name: Confirm destruction
+      run: |
+        echo "⚠️  WARNING: This will destroy all infrastructure in ${{ github.event.inputs.environment }}"
+        echo "Environment: ${{ github.event.inputs.environment }}"
+        echo "Region: ${{ env.AWS_REGION }}"
+        
+    - name: Terraform Destroy
+      working-directory: ./terraform
+      run: |
+        terraform init
+        terraform destroy -auto-approve
+        echo "🗑️  Infrastructure destroyed"
+        
+    - name: Cleanup ECR repositories
+      if: github.event.inputs.environment == 'staging'
+      run: |
+        # Deletar repositórios ECR apenas em staging
+        aws ecr describe-repositories --region ${{ env.AWS_REGION }} --query 'repositories[].repositoryName' --output text | while read repo; do
+          if [[ "$repo" == "biblioteca-"* ]]; then
+            echo "Deleting ECR repository: $repo"
+            aws ecr delete-repository --repository-name $repo --force || true
+          fi
+        done
+
+  notify:
+    name: Notify Action Completed
+    runs-on: ubuntu-latest
+    needs: [cleanup, rollback, destroy]
+    if: always()
+    
+    steps:
+    - name: Notify completion
+      run: |
+        ACTION="${{ github.event.inputs.action }}"
+        ENVIRONMENT="${{ github.event.inputs.environment }}"
+        
+        case $ACTION in
+          cleanup)
+            if [ "${{ needs.cleanup.result }}" == "success" ]; then
+              echo "✅ Cleanup completed successfully for $ENVIRONMENT"
+            else
+              echo "❌ Cleanup failed for $ENVIRONMENT"
+            fi
+            ;;
+          rollback)
+            if [ "${{ needs.rollback.result }}" == "success" ]; then
+              echo "🔄 Rollback completed successfully for $ENVIRONMENT"
+            else
+              echo "❌ Rollback failed for $ENVIRONMENT"
+            fi
+            ;;
+          destroy)
+            if [ "${{ needs.destroy.result }}" == "success" ]; then
+              echo "🗑️  Infrastructure destroyed successfully for $ENVIRONMENT"
+            else
+              echo "❌ Infrastructure destruction failed for $ENVIRONMENT"
+            fi
+            ;;
+        esac
+

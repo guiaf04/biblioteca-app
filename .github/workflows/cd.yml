@@ -1,0 +1,237 @@
+name: CD - Deploy to AWS
+
+on:
+  push:
+    branches: [ main ]
+  workflow_run:
+    workflows: ["CI - Build and Test"]
+    types:
+      - completed
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_BACKEND: biblioteca-backend
+  ECR_REPOSITORY_FRONTEND: biblioteca-frontend
+
+jobs:
+  # Job para deploy apenas se CI passou
+  check-ci:
+    name: Check CI Status
+    runs-on: ubuntu-latest
+    outputs:
+      ci-success: ${{ steps.check.outputs.success }}
+    
+    steps:
+    - name: Check CI workflow status
+      id: check
+      run: |
+        if [ "${{ github.event.workflow_run.conclusion }}" == "success" ] || [ "${{ github.event_name }}" == "push" ]; then
+          echo "success=true" >> $GITHUB_OUTPUT
+        else
+          echo "success=false" >> $GITHUB_OUTPUT
+        fi
+
+  # Job para build e push das imagens Docker
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: check-ci
+    if: needs.check-ci.outputs.ci-success == 'true'
+    
+    outputs:
+      backend-image: ${{ steps.build-backend.outputs.image }}
+      frontend-image: ${{ steps.build-frontend.outputs.image }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Build and push backend image
+      id: build-backend
+      run: |
+        cd backend
+        IMAGE_TAG=${{ github.sha }}
+        IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_BACKEND }}:${IMAGE_TAG}
+        
+        docker build -t ${IMAGE_URI} .
+        docker tag ${IMAGE_URI} ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_BACKEND }}:latest
+        
+        docker push ${IMAGE_URI}
+        docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_BACKEND }}:latest
+        
+        echo "image=${IMAGE_URI}" >> $GITHUB_OUTPUT
+        
+    - name: Build and push frontend image
+      id: build-frontend
+      run: |
+        cd frontend
+        IMAGE_TAG=${{ github.sha }}
+        IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:${IMAGE_TAG}
+        
+        docker build -t ${IMAGE_URI} .
+        docker tag ${IMAGE_URI} ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:latest
+        
+        docker push ${IMAGE_URI}
+        docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:latest
+        
+        echo "image=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+  # Job para deploy da infraestrutura com Terraform
+  deploy-infrastructure:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    needs: [check-ci, build-and-push]
+    if: needs.check-ci.outputs.ci-success == 'true'
+    
+    outputs:
+      instance-ip: ${{ steps.terraform.outputs.instance_ip }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.5.0
+        terraform_wrapper: false
+        
+    - name: Terraform Init
+      working-directory: ./terraform
+      run: terraform init
+      
+    - name: Terraform Plan
+      working-directory: ./terraform
+      run: |
+        terraform plan \
+          -var="backend_image=${{ needs.build-and-push.outputs.backend-image }}" \
+          -var="frontend_image=${{ needs.build-and-push.outputs.frontend-image }}" \
+          -out=tfplan
+          
+    - name: Terraform Apply
+      id: terraform
+      working-directory: ./terraform
+      run: |
+        terraform apply -auto-approve tfplan
+        echo "instance_ip=$(terraform output -raw instance_public_ip)" >> $GITHUB_OUTPUT
+
+  # Job para deploy da aplicação com Ansible
+  deploy-application:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    needs: [deploy-infrastructure, build-and-push]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install Ansible
+      run: |
+        pip install ansible boto3 botocore
+        
+    - name: Setup SSH key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ needs.deploy-infrastructure.outputs.instance-ip }} >> ~/.ssh/known_hosts
+        
+    - name: Create Ansible inventory
+      run: |
+        cat > ansible/inventory.ini << EOF
+        [biblioteca_servers]
+        ${{ needs.deploy-infrastructure.outputs.instance-ip }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+        EOF
+        
+    - name: Run Ansible playbook
+      working-directory: ./ansible
+      run: |
+        ansible-playbook -i inventory.ini deploy.yml \
+          -e backend_image=${{ needs.build-and-push.outputs.backend-image }} \
+          -e frontend_image=${{ needs.build-and-push.outputs.frontend-image }}
+
+  # Job para testes de smoke após deploy
+  smoke-tests:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [deploy-application, deploy-infrastructure]
+    
+    steps:
+    - name: Wait for application to start
+      run: sleep 60
+      
+    - name: Test backend health
+      run: |
+        BACKEND_URL="http://${{ needs.deploy-infrastructure.outputs.instance-ip }}:8080"
+        
+        # Testar endpoint de estatísticas
+        if curl -f "${BACKEND_URL}/api/livros/estatisticas"; then
+          echo "✅ Backend health check passed"
+        else
+          echo "❌ Backend health check failed"
+          exit 1
+        fi
+        
+    - name: Test frontend
+      run: |
+        FRONTEND_URL="http://${{ needs.deploy-infrastructure.outputs.instance-ip }}"
+        
+        # Testar se frontend está respondendo
+        if curl -f "${FRONTEND_URL}"; then
+          echo "✅ Frontend health check passed"
+        else
+          echo "❌ Frontend health check failed"
+          exit 1
+        fi
+
+  # Job de notificação final
+  notify-deployment:
+    name: Notify Deployment
+    runs-on: ubuntu-latest
+    needs: [deploy-infrastructure, deploy-application, smoke-tests]
+    if: always()
+    
+    steps:
+    - name: Notify success
+      if: ${{ needs.deploy-infrastructure.result == 'success' && needs.deploy-application.result == 'success' && needs.smoke-tests.result == 'success' }}
+      run: |
+        echo "🚀 Deployment completed successfully!"
+        echo "🌐 Application URL: http://${{ needs.deploy-infrastructure.outputs.instance-ip }}"
+        echo "🔧 Backend API: http://${{ needs.deploy-infrastructure.outputs.instance-ip }}:8080/api/livros"
+        
+    - name: Notify failure
+      if: ${{ needs.deploy-infrastructure.result == 'failure' || needs.deploy-application.result == 'failure' || needs.smoke-tests.result == 'failure' }}
+      run: |
+        echo "❌ Deployment failed!"
+        echo "Infrastructure: ${{ needs.deploy-infrastructure.result }}"
+        echo "Application: ${{ needs.deploy-application.result }}"
+        echo "Smoke tests: ${{ needs.smoke-tests.result }}"
+        exit 1
+

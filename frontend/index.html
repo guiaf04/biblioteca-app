@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Biblioteca</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-book"></i> Sistema de Biblioteca</h1>
+            <div class="stats">
+                <div class="stat-item">
+                    <span class="stat-number" id="totalLivros">0</span>
+                    <span class="stat-label">Total de Livros</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number" id="livrosDisponiveis">0</span>
+                    <span class="stat-label">Disponíveis</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <!-- Seção de busca e filtros -->
+            <section class="search-section">
+                <div class="search-container">
+                    <input type="text" id="searchInput" placeholder="Buscar por título, autor ou editora...">
+                    <button id="searchBtn" class="btn btn-primary">
+                        <i class="fas fa-search"></i> Buscar
+                    </button>
+                    <button id="clearSearchBtn" class="btn btn-secondary">
+                        <i class="fas fa-times"></i> Limpar
+                    </button>
+                </div>
+                <div class="filter-container">
+                    <label>
+                        <input type="checkbox" id="filterDisponiveis"> Apenas disponíveis
+                    </label>
+                </div>
+            </section>
+
+            <!-- Seção de formulário -->
+            <section class="form-section">
+                <h2 id="formTitle">Adicionar Novo Livro</h2>
+                <form id="livroForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="titulo">Título *</label>
+                            <input type="text" id="titulo" name="titulo" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="autor">Autor *</label>
+                            <input type="text" id="autor" name="autor" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="isbn">ISBN *</label>
+                            <input type="text" id="isbn" name="isbn" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="anoPublicacao">Ano de Publicação *</label>
+                            <input type="number" id="anoPublicacao" name="anoPublicacao" min="1000" max="2030" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="editora">Editora</label>
+                            <input type="text" id="editora" name="editora">
+                        </div>
+                        <div class="form-group">
+                            <label for="disponivel">Status</label>
+                            <select id="disponivel" name="disponivel">
+                                <option value="true">Disponível</option>
+                                <option value="false">Indisponível</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="descricao">Descrição</label>
+                        <textarea id="descricao" name="descricao" rows="3"></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-save"></i> <span id="submitBtnText">Salvar</span>
+                        </button>
+                        <button type="button" id="cancelBtn" class="btn btn-secondary" style="display: none;">
+                            <i class="fas fa-times"></i> Cancelar
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Seção de lista de livros -->
+            <section class="list-section">
+                <h2>Lista de Livros</h2>
+                <div id="loading" class="loading" style="display: none;">
+                    <i class="fas fa-spinner fa-spin"></i> Carregando...
+                </div>
+                <div id="livrosList" class="livros-list"></div>
+                <div id="emptyState" class="empty-state" style="display: none;">
+                    <i class="fas fa-book-open"></i>
+                    <p>Nenhum livro encontrado</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal de confirmação -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content">
+            <h3>Confirmar Exclusão</h3>
+            <p>Tem certeza que deseja excluir este livro?</p>
+            <div class="modal-actions">
+                <button id="confirmDelete" class="btn btn-danger">Excluir</button>
+                <button id="cancelDelete" class="btn btn-secondary">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast para notificações -->
+    <div id="toast" class="toast"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+

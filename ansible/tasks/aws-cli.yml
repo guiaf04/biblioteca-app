@@ -1,0 +1,88 @@
+---
+# Tarefas para instalação e configuração do AWS CLI
+
+- name: Check if AWS CLI v2 is already installed
+  command: aws --version
+  register: aws_version_check
+  failed_when: false
+  changed_when: false
+
+- name: Download AWS CLI v2
+  get_url:
+    url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+    dest: /tmp/awscliv2.zip
+    mode: '0644'
+  when: aws_version_check.rc != 0 or 'aws-cli/2' not in aws_version_check.stdout
+
+- name: Extract AWS CLI v2
+  unarchive:
+    src: /tmp/awscliv2.zip
+    dest: /tmp
+    remote_src: yes
+  when: aws_version_check.rc != 0 or 'aws-cli/2' not in aws_version_check.stdout
+
+- name: Install AWS CLI v2
+  command: /tmp/aws/install --update
+  when: aws_version_check.rc != 0 or 'aws-cli/2' not in aws_version_check.stdout
+
+- name: Clean up AWS CLI installation files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/awscliv2.zip
+    - /tmp/aws
+  when: aws_version_check.rc != 0 or 'aws-cli/2' not in aws_version_check.stdout
+
+- name: Verify AWS CLI installation
+  command: aws --version
+  register: aws_version
+  changed_when: false
+
+- name: Display AWS CLI version
+  debug:
+    msg: "AWS CLI version: {{ aws_version.stdout }}"
+
+- name: Configure AWS CLI region
+  shell: |
+    aws configure set region {{ aws_region }}
+    aws configure set output json
+  become_user: "{{ app_user }}"
+  environment:
+    HOME: "/home/{{ app_user }}"
+
+- name: Create AWS credentials directory
+  file:
+    path: "/home/{{ app_user }}/.aws"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0700'
+
+- name: Configure AWS CLI for application user
+  shell: |
+    aws configure set region {{ aws_region }}
+    aws configure set output json
+  become_user: "{{ app_user }}"
+  environment:
+    HOME: "/home/{{ app_user }}"
+
+- name: Test AWS CLI functionality (if credentials are available)
+  shell: aws sts get-caller-identity
+  register: aws_test
+  failed_when: false
+  changed_when: false
+  become_user: "{{ app_user }}"
+  environment:
+    HOME: "/home/{{ app_user }}"
+
+- name: Display AWS CLI test result
+  debug:
+    msg: "AWS CLI configured successfully"
+  when: aws_test.rc == 0
+
+- name: Display AWS CLI configuration note
+  debug:
+    msg: "AWS CLI installed but credentials not configured. Configure via IAM role or environment variables."
+  when: aws_test.rc != 0
+

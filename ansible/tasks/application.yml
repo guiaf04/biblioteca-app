@@ -1,0 +1,181 @@
+---
+# Tarefas para deploy da aplicação Biblioteca
+
+- name: Create application directory
+  file:
+    path: "{{ app_directory }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0755'
+
+- name: Create docker-compose.yml
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ app_directory }}/docker-compose.yml"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0644'
+  notify: restart application
+
+- name: Create deployment script
+  template:
+    src: deploy.sh.j2
+    dest: "{{ app_directory }}/deploy.sh"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0755'
+
+- name: Create monitoring script
+  template:
+    src: monitor.sh.j2
+    dest: "{{ app_directory }}/monitor.sh"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0755'
+
+- name: Create backup script
+  template:
+    src: backup.sh.j2
+    dest: "{{ app_directory }}/backup.sh"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0755'
+
+- name: Create environment file
+  template:
+    src: .env.j2
+    dest: "{{ app_directory }}/.env"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0600'
+
+- name: Login to ECR (if credentials available)
+  shell: |
+    aws ecr get-login-password --region {{ aws_region }} | docker login --username AWS --password-stdin {{ backend_image.split('/')[0] }}
+  become_user: "{{ app_user }}"
+  environment:
+    HOME: "/home/{{ app_user }}"
+  failed_when: false
+  changed_when: false
+
+- name: Pull Docker images
+  docker_image:
+    name: "{{ item }}"
+    source: pull
+    force_source: yes
+  loop:
+    - "{{ backend_image }}"
+    - "{{ frontend_image }}"
+  become_user: "{{ app_user }}"
+  failed_when: false
+
+- name: Stop existing containers
+  docker_compose:
+    project_src: "{{ app_directory }}"
+    state: absent
+  become_user: "{{ app_user }}"
+  ignore_errors: yes
+
+- name: Start application containers
+  docker_compose:
+    project_src: "{{ app_directory }}"
+    state: present
+    pull: yes
+  become_user: "{{ app_user }}"
+
+- name: Wait for backend to be healthy
+  uri:
+    url: "http://localhost:8080/api/livros/estatisticas"
+    method: GET
+    timeout: 10
+  register: backend_health
+  retries: 12
+  delay: 10
+  until: backend_health.status == 200
+  failed_when: false
+
+- name: Wait for frontend to be accessible
+  uri:
+    url: "http://localhost"
+    method: GET
+    timeout: 10
+  register: frontend_health
+  retries: 6
+  delay: 5
+  until: frontend_health.status == 200
+  failed_when: false
+
+- name: Display container status
+  command: docker-compose ps
+  args:
+    chdir: "{{ app_directory }}"
+  register: container_status
+  become_user: "{{ app_user }}"
+  changed_when: false
+
+- name: Show container status
+  debug:
+    msg: "{{ container_status.stdout_lines }}"
+
+- name: Create application logs directory
+  file:
+    path: /var/log/biblioteca
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0755'
+
+- name: Configure log rotation for application
+  copy:
+    content: |
+      /var/log/biblioteca/*.log {
+          daily
+          rotate 7
+          compress
+          delaycompress
+          missingok
+          notifempty
+          create 644 {{ app_user }} {{ app_user }}
+          postrotate
+              /usr/bin/docker-compose -f {{ app_directory }}/docker-compose.yml restart > /dev/null 2>&1 || true
+          endscript
+      }
+    dest: /etc/logrotate.d/biblioteca
+    mode: '0644'
+
+- name: Setup cron jobs for monitoring and maintenance
+  cron:
+    name: "{{ item.name }}"
+    minute: "{{ item.minute }}"
+    hour: "{{ item.hour }}"
+    job: "{{ item.job }}"
+    user: "{{ app_user }}"
+  loop:
+    - name: "Monitor application health"
+      minute: "*/5"
+      hour: "*"
+      job: "cd {{ app_directory }} && ./monitor.sh >> /var/log/biblioteca/monitor.log 2>&1"
+    - name: "Daily backup"
+      minute: "0"
+      hour: "2"
+      job: "cd {{ app_directory }} && ./backup.sh >> /var/log/biblioteca/backup.log 2>&1"
+    - name: "Weekly cleanup"
+      minute: "0"
+      hour: "3"
+      job: "docker system prune -f >> /var/log/biblioteca/cleanup.log 2>&1"
+
+- name: Create systemd service for application
+  template:
+    src: biblioteca.service.j2
+    dest: /etc/systemd/system/biblioteca.service
+    mode: '0644'
+  notify: restart docker
+
+- name: Enable and start biblioteca service
+  systemd:
+    name: biblioteca
+    enabled: yes
+    state: started
+    daemon_reload: yes
+

@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # Backend Java Spring Boot
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: biblioteca-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JAVA_OPTS=-Xmx512m -Xms256m
+    networks:
+      - biblioteca-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/livros/estatisticas"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    labels:
+      - "com.biblioteca.service=backend"
+      - "com.biblioteca.version=1.0.0"
+
+  # Frontend JavaScript
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: biblioteca-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - biblioteca-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    labels:
+      - "com.biblioteca.service=frontend"
+      - "com.biblioteca.version=1.0.0"
+
+networks:
+  biblioteca-network:
+    driver: bridge
+    name: biblioteca-network
+
+# Volumes para persistência (se necessário no futuro)
+volumes:
+  biblioteca-data:
+    name: biblioteca-data
+

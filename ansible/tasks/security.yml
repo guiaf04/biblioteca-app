@@ -1,0 +1,437 @@
+---
+# Tarefas para configuração de segurança
+
+- name: Install security tools
+  apt:
+    name:
+      - ufw
+      - fail2ban
+      - unattended-upgrades
+      - apt-listchanges
+    state: present
+
+- name: Configure UFW firewall
+  block:
+    - name: Reset UFW to defaults
+      ufw:
+        state: reset
+
+    - name: Set UFW default policies
+      ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'allow' }
+
+    - name: Allow SSH
+      ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+
+    - name: Allow HTTP
+      ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+
+    - name: Allow HTTPS
+      ufw:
+        rule: allow
+        port: '443'
+        proto: tcp
+
+    - name: Allow backend API
+      ufw:
+        rule: allow
+        port: '8080'
+        proto: tcp
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+
+- name: Configure fail2ban
+  block:
+    - name: Create fail2ban jail configuration
+      copy:
+        content: |
+          [DEFAULT]
+          bantime = 3600
+          findtime = 600
+          maxretry = 5
+          backend = auto
+          usedns = warn
+          logencoding = auto
+          enabled = false
+          filter = %(__name__)s
+          destemail = root@localhost
+          sender = root@localhost
+          mta = sendmail
+          protocol = tcp
+          chain = <known/chain>
+          port = 0:65535
+          fail2ban_agent = Fail2Ban/%(fail2ban_version)s
+          banaction = iptables-multiport
+          banaction_allports = iptables-allports
+          action_ = %(banaction)s[name=%(__name__)s, bantime="%(bantime)s", port="%(port)s", protocol="%(protocol)s", chain="%(chain)s"]
+          action_mw = %(banaction)s[name=%(__name__)s, bantime="%(bantime)s", port="%(port)s", protocol="%(protocol)s", chain="%(chain)s"]
+                      %(mta)s-whois[name=%(__name__)s, sender="%(sender)s", dest="%(destemail)s", protocol="%(protocol)s", chain="%(chain)s"]
+          action_mwl = %(banaction)s[name=%(__name__)s, bantime="%(bantime)s", port="%(port)s", protocol="%(protocol)s", chain="%(chain)s"]
+                       %(mta)s-whois-lines[name=%(__name__)s, sender="%(sender)s", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]
+          action_xarf = %(banaction)s[name=%(__name__)s, bantime="%(bantime)s", port="%(port)s", protocol="%(protocol)s", chain="%(chain)s"]
+                        xarf-login-attack[service=%(__name__)s, sender="%(sender)s", logpath="%(logpath)s", port="%(port)s"]
+          action_cf_mwl = cloudflare[cfuser="%(cfemail)s", cftoken="%(cfapikey)s"]
+                          %(mta)s-whois-lines[name=%(__name__)s, sender="%(sender)s", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]
+          action_blocklist_de  = blocklist_de[email="%(sender)s", service="%(__name__)s", apikey="%(blocklist_de_apikey)s", agent="%(fail2ban_agent)s"]
+          action_badips = badips.py[category="%(__name__)s", banaction="%(banaction)s", agent="%(fail2ban_agent)s"]
+          action_badips_report = badips[category="%(__name__)s", agent="%(fail2ban_agent)s"]
+          action_abuseipdb = abuseipdb
+          action = %(action_)s
+
+          [sshd]
+          enabled = true
+          port = ssh
+          logpath = %(sshd_log)s
+          backend = %(sshd_backend)s
+
+          [nginx-http-auth]
+          enabled = true
+          filter = nginx-http-auth
+          port = http,https
+          logpath = /var/log/nginx/error.log
+
+          [nginx-noscript]
+          enabled = true
+          port = http,https
+          filter = nginx-noscript
+          logpath = /var/log/nginx/access.log
+          maxretry = 6
+
+          [nginx-badbots]
+          enabled = true
+          port = http,https
+          filter = nginx-badbots
+          logpath = /var/log/nginx/access.log
+          maxretry = 2
+
+          [nginx-noproxy]
+          enabled = true
+          port = http,https
+          filter = nginx-noproxy
+          logpath = /var/log/nginx/access.log
+          maxretry = 2
+        dest: /etc/fail2ban/jail.local
+        mode: '0644'
+
+    - name: Start and enable fail2ban
+      systemd:
+        name: fail2ban
+        state: started
+        enabled: yes
+
+- name: Configure automatic security updates
+  block:
+    - name: Configure unattended-upgrades
+      copy:
+        content: |
+          Unattended-Upgrade::Allowed-Origins {
+              "${distro_id}:${distro_codename}";
+              "${distro_id}:${distro_codename}-security";
+              "${distro_id}ESMApps:${distro_codename}-apps-security";
+              "${distro_id}ESM:${distro_codename}-infra-security";
+          };
+          
+          Unattended-Upgrade::Package-Blacklist {
+              // "vim";
+              // "libc6-dev";
+              // "libc6-dev";
+          };
+          
+          Unattended-Upgrade::DevRelease "auto";
+          Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+          Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+          Unattended-Upgrade::Remove-Unused-Dependencies "false";
+          Unattended-Upgrade::Automatic-Reboot "false";
+          Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+          Unattended-Upgrade::Automatic-Reboot-Time "02:00";
+          Unattended-Upgrade::SyslogEnable "true";
+          Unattended-Upgrade::SyslogFacility "daemon";
+          Unattended-Upgrade::OnlyOnACPower "false";
+          Unattended-Upgrade::Skip-Updates-On-Metered-Connections "true";
+          Unattended-Upgrade::Verbose "false";
+          Unattended-Upgrade::Debug "false";
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        mode: '0644'
+
+    - name: Enable automatic updates
+      copy:
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Download-Upgradeable-Packages "1";
+          APT::Periodic::AutocleanInterval "7";
+          APT::Periodic::Unattended-Upgrade "1";
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: '0644'
+
+- name: Secure SSH configuration
+  block:
+    - name: Backup original SSH config
+      copy:
+        src: /etc/ssh/sshd_config
+        dest: /etc/ssh/sshd_config.backup
+        remote_src: yes
+        mode: '0600'
+
+    - name: Configure SSH security settings
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        backup: yes
+      loop:
+        - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+        - { regexp: '^#?AuthorizedKeysFile', line: 'AuthorizedKeysFile .ssh/authorized_keys' }
+        - { regexp: '^#?PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
+        - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+        - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 3' }
+        - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
+        - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
+        - { regexp: '^#?Protocol', line: 'Protocol 2' }
+      notify: restart ssh
+
+    - name: Restart SSH service
+      systemd:
+        name: ssh
+        state: restarted
+
+- name: Set up log monitoring
+  block:
+    - name: Create security log monitoring script
+      copy:
+        content: |
+          #!/bin/bash
+          
+          # Security monitoring script
+          
+          log() {
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+          }
+          
+          log "=== Security Report ==="
+          
+          # Check for failed login attempts
+          FAILED_LOGINS=$(grep "Failed password" /var/log/auth.log | wc -l)
+          log "Failed login attempts in auth.log: $FAILED_LOGINS"
+          
+          # Check fail2ban status
+          if systemctl is-active --quiet fail2ban; then
+              log "Fail2ban status: Active"
+              BANNED_IPS=$(fail2ban-client status sshd | grep "Banned IP list" | awk -F: '{print $2}' | wc -w)
+              log "Currently banned IPs: $BANNED_IPS"
+          else
+              log "Fail2ban status: Inactive"
+          fi
+          
+          # Check UFW status
+          UFW_STATUS=$(ufw status | head -1)
+          log "UFW status: $UFW_STATUS"
+          
+          # Check for suspicious processes
+          SUSPICIOUS_PROCS=$(ps aux | grep -E "(nc|netcat|nmap|tcpdump)" | grep -v grep | wc -l)
+          if [ "$SUSPICIOUS_PROCS" -gt 0 ]; then
+              log "WARNING: Found $SUSPICIOUS_PROCS potentially suspicious processes"
+          fi
+          
+          # Check disk space for logs
+          LOG_DISK_USAGE=$(df /var/log | awk 'NR==2 {print $5}' | sed 's/%//')
+          if [ "$LOG_DISK_USAGE" -gt 80 ]; then
+              log "WARNING: Log disk usage is ${LOG_DISK_USAGE}%"
+          fi
+          
+          log "=== End Security Report ==="
+        dest: /usr/local/bin/security-monitor.sh
+        mode: '0755'
+
+    - name: Setup security monitoring cron job
+      cron:
+        name: "Security monitoring"
+        minute: "0"
+        hour: "*/6"
+        job: "/usr/local/bin/security-monitor.sh >> /var/log/security-monitor.log 2>&1"
+        user: root
+
+- name: Configure system limits
+  block:
+    - name: Set security limits
+      copy:
+        content: |
+          # Security limits for biblioteca application
+          * soft nofile 65536
+          * hard nofile 65536
+          * soft nproc 32768
+          * hard nproc 32768
+          {{ app_user }} soft nofile 65536
+          {{ app_user }} hard nofile 65536
+          {{ app_user }} soft nproc 32768
+          {{ app_user }} hard nproc 32768
+        dest: /etc/security/limits.d/99-biblioteca.conf
+        mode: '0644'
+
+    - name: Configure sysctl security settings
+      copy:
+        content: |
+          # Security settings for biblioteca application
+          
+          # IP Spoofing protection
+          net.ipv4.conf.default.rp_filter = 1
+          net.ipv4.conf.all.rp_filter = 1
+          
+          # Ignore ICMP redirects
+          net.ipv4.conf.all.accept_redirects = 0
+          net.ipv6.conf.all.accept_redirects = 0
+          net.ipv4.conf.default.accept_redirects = 0
+          net.ipv6.conf.default.accept_redirects = 0
+          
+          # Ignore send redirects
+          net.ipv4.conf.all.send_redirects = 0
+          net.ipv4.conf.default.send_redirects = 0
+          
+          # Disable source packet routing
+          net.ipv4.conf.all.accept_source_route = 0
+          net.ipv6.conf.all.accept_source_route = 0
+          net.ipv4.conf.default.accept_source_route = 0
+          net.ipv6.conf.default.accept_source_route = 0
+          
+          # Log Martians
+          net.ipv4.conf.all.log_martians = 1
+          net.ipv4.conf.default.log_martians = 1
+          
+          # Ignore ICMP ping requests
+          net.ipv4.icmp_echo_ignore_all = 0
+          
+          # Ignore Directed pings
+          net.ipv4.icmp_echo_ignore_broadcasts = 1
+          
+          # Disable IPv6 if not needed
+          net.ipv6.conf.all.disable_ipv6 = 1
+          net.ipv6.conf.default.disable_ipv6 = 1
+          net.ipv6.conf.lo.disable_ipv6 = 1
+          
+          # TCP SYN flood protection
+          net.ipv4.tcp_syncookies = 1
+          net.ipv4.tcp_max_syn_backlog = 2048
+          net.ipv4.tcp_synack_retries = 2
+          net.ipv4.tcp_syn_retries = 5
+          
+          # Control buffer sizes
+          net.core.rmem_default = 262144
+          net.core.rmem_max = 16777216
+          net.core.wmem_default = 262144
+          net.core.wmem_max = 16777216
+          
+          # Increase number of incoming connections
+          net.core.somaxconn = 32768
+          
+          # Increase number of incoming connections backlog
+          net.core.netdev_max_backlog = 5000
+          
+          # Decrease the time default value for connections to keep alive
+          net.ipv4.tcp_keepalive_time = 300
+          net.ipv4.tcp_keepalive_probes = 5
+          net.ipv4.tcp_keepalive_intvl = 15
+        dest: /etc/sysctl.d/99-biblioteca-security.conf
+        mode: '0644'
+
+    - name: Apply sysctl settings
+      command: sysctl -p /etc/sysctl.d/99-biblioteca-security.conf
+
+- name: Create security audit script
+  copy:
+    content: |
+      #!/bin/bash
+      
+      # Security audit script for Biblioteca application
+      
+      echo "========================================="
+      echo "    Security Audit Report"
+      echo "========================================="
+      echo "Date: $(date)"
+      echo ""
+      
+      # System information
+      echo "=== System Information ==="
+      echo "Hostname: $(hostname)"
+      echo "OS: $(lsb_release -d | cut -f2)"
+      echo "Kernel: $(uname -r)"
+      echo "Uptime: $(uptime -p)"
+      echo ""
+      
+      # User accounts
+      echo "=== User Accounts ==="
+      echo "Total users: $(cat /etc/passwd | wc -l)"
+      echo "Users with shell access:"
+      grep -E "/bin/(bash|sh|zsh)" /etc/passwd | cut -d: -f1
+      echo ""
+      
+      # Network services
+      echo "=== Network Services ==="
+      echo "Listening ports:"
+      netstat -tln | grep LISTEN
+      echo ""
+      
+      # Firewall status
+      echo "=== Firewall Status ==="
+      ufw status verbose
+      echo ""
+      
+      # Fail2ban status
+      echo "=== Fail2ban Status ==="
+      if systemctl is-active --quiet fail2ban; then
+          fail2ban-client status
+      else
+          echo "Fail2ban is not running"
+      fi
+      echo ""
+      
+      # Recent security events
+      echo "=== Recent Security Events ==="
+      echo "Failed SSH attempts (last 24h):"
+      grep "Failed password" /var/log/auth.log | grep "$(date '+%b %d')" | wc -l
+      echo ""
+      echo "Successful SSH logins (last 24h):"
+      grep "Accepted password\|Accepted publickey" /var/log/auth.log | grep "$(date '+%b %d')" | wc -l
+      echo ""
+      
+      # File permissions audit
+      echo "=== Critical File Permissions ==="
+      echo "/etc/passwd: $(ls -l /etc/passwd | awk '{print $1}')"
+      echo "/etc/shadow: $(ls -l /etc/shadow | awk '{print $1}')"
+      echo "/etc/ssh/sshd_config: $(ls -l /etc/ssh/sshd_config | awk '{print $1}')"
+      echo ""
+      
+      # Docker security
+      echo "=== Docker Security ==="
+      if command -v docker &> /dev/null; then
+          echo "Docker version: $(docker --version)"
+          echo "Running containers: $(docker ps --format 'table {{.Names}}\t{{.Status}}')"
+      else
+          echo "Docker not installed"
+      fi
+      echo ""
+      
+      echo "========================================="
+      echo "    End Security Audit Report"
+      echo "========================================="
+    dest: /usr/local/bin/security-audit.sh
+    mode: '0755'
+
+  handlers:
+    - name: restart ssh
+      systemd:
+        name: ssh
+        state: restarted
+
