@@ -124,6 +124,14 @@ jobs:
         chmod 600 terraform/biblioteca-key.pem
         ssh-keygen -y -f terraform/biblioteca-key.pem > terraform/biblioteca-key.pub
 
+    - name: Idempotently create AWS Key Pair
+      id: key-pair
+      working-directory: ./terraform
+      run: |
+        KEY_NAME="biblioteca-key"
+        aws ec2 describe-key-pairs --key-names ${KEY_NAME} >/dev/null 2>&1 || \
+          aws ec2 import-key-pair --key-name ${KEY_NAME} --public-key-material fileb://biblioteca-key.pub
+
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
@@ -246,4 +254,3 @@ jobs:
         echo "Application: ${{ needs.deploy-application.result }}"
         echo "Smoke tests: ${{ needs.smoke-tests.result }}"
         exit 1
-

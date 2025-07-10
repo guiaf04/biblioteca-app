@@ -171,12 +171,8 @@ resource "aws_security_group" "biblioteca_sg" {
 }
 
 # Key Pair para acesso SSH
-resource "aws_key_pair" "biblioteca_key" {
-  key_name   = "${var.project_name}-key"
-  public_key = file("${path.module}/biblioteca-key.pub") # arquivo gerado no pipeline
-  tags = {
-    Name = "${var.project_name}-key-pair"
-  }
+data "aws_key_pair" "biblioteca_key" {
+  key_name = "${var.project_name}-key"
 }
 
 import {
@@ -314,4 +310,3 @@ resource "aws_eip" "biblioteca_eip" {
   
   depends_on = [aws_internet_gateway.biblioteca_igw]
 }
-

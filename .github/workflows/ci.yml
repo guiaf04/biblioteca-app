@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+  checks: write
+  actions: write
+  security-events: write
+
 env:
   JAVA_VERSION: '17'
   NODE_VERSION: '18'
@@ -251,4 +257,3 @@ jobs:
         echo "Frontend tests: ${{ needs.frontend-tests.result }}"
         echo "Docker build: ${{ needs.docker-build.result }}"
         exit 1
-
