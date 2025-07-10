@@ -227,3 +227,25 @@ resource "aws_eip" "biblioteca_eip" {
   depends_on = [aws_internet_gateway.biblioteca_igw]
 }
 
+resource "aws_ecr_repository" "biblioteca_backend" {
+  name                 = "biblioteca-backend"
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+  tags = {
+    Name = "biblioteca-backend-ecr"
+  }
+}
+
+resource "aws_ecr_repository" "biblioteca_frontend" {
+  name                 = "biblioteca-frontend"
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+  tags = {
+    Name = "biblioteca-frontend-ecr"
+  }
+}
+
