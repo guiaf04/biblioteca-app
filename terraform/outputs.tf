@@ -2,17 +2,17 @@
 
 output "vpc_id" {
   description = "ID of the VPC"
-  value       = aws_vpc.biblioteca_vpc.id
+  value       = data.aws_vpc.selected.id
 }
 
 output "vpc_cidr_block" {
   description = "CIDR block of the VPC"
-  value       = aws_vpc.biblioteca_vpc.cidr_block
+  value       = data.aws_vpc.selected.cidr_block
 }
 
 output "public_subnet_id" {
   description = "ID of the public subnet"
-  value       = aws_subnet.biblioteca_public_subnet.id
+  value       = data.aws_subnet.selected.id
 }
 
 output "security_group_id" {
@@ -88,7 +88,7 @@ output "docker_login_command" {
 output "infrastructure_summary" {
   description = "Summary of created infrastructure"
   value = {
-    vpc_id                    = aws_vpc.biblioteca_vpc.id
+    vpc_id                    = data.aws_vpc.selected.id
     instance_id               = aws_instance.biblioteca_server.id
     public_ip                 = aws_eip.biblioteca_eip.public_ip
     security_group_id         = aws_security_group.biblioteca_sg.id
@@ -99,4 +99,3 @@ output "infrastructure_summary" {
     ssh_command               = "ssh -i ~/.ssh/${data.aws_key_pair.biblioteca_key.key_name}.pem ubuntu@${aws_eip.biblioteca_eip.public_ip}"
   }
 }
-
