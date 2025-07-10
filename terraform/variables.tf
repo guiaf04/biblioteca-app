@@ -23,6 +23,18 @@ variable "project_name" {
   default     = "biblioteca"
 }
 
+variable "vpc_name" {
+  description = "The Name tag of the VPC to use."
+  type        = string
+  default     = "biblioteca-vpc"
+}
+
+variable "public_subnet_name" {
+  description = "The Name tag of the public subnet to use."
+  type        = string
+  default     = "biblioteca-public-subnet"
+}
+
 variable "vpc_cidr" {
   description = "CIDR block for VPC"
   type        = string
@@ -197,4 +209,3 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
-

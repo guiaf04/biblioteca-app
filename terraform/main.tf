@@ -52,63 +52,25 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-# VPC
-resource "aws_vpc" "biblioteca_vpc" {
-  cidr_block           = var.vpc_cidr
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-  
+# --- Network Data Sources ---
+# Instead of creating a new VPC on every run, we now look for a pre-existing one.
+data "aws_vpc" "selected" {
   tags = {
-    Name = "${var.project_name}-vpc"
+    Name = var.vpc_name
   }
 }
 
-# Internet Gateway
-resource "aws_internet_gateway" "biblioteca_igw" {
-  vpc_id = aws_vpc.biblioteca_vpc.id
-  
+data "aws_subnet" "selected" {
+  vpc_id = data.aws_vpc.selected.id
   tags = {
-    Name = "${var.project_name}-igw"
+    Name = var.public_subnet_name
   }
-}
-
-# Subnet pública
-resource "aws_subnet" "biblioteca_public_subnet" {
-  vpc_id                  = aws_vpc.biblioteca_vpc.id
-  cidr_block              = var.public_subnet_cidr
-  availability_zone       = data.aws_availability_zones.available.names[0]
-  map_public_ip_on_launch = true
-  
-  tags = {
-    Name = "${var.project_name}-public-subnet"
-    Type = "Public"
-  }
-}
-
-# Route table para subnet pública
-resource "aws_route_table" "biblioteca_public_rt" {
-  vpc_id = aws_vpc.biblioteca_vpc.id
-  
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.biblioteca_igw.id
-  }
-  
-  tags = {
-    Name = "${var.project_name}-public-rt"
-  }
-}
-
-# Associação da route table com a subnet pública
-resource "aws_route_table_association" "biblioteca_public_rta" {
-  subnet_id      = aws_subnet.biblioteca_public_subnet.id
-  route_table_id = aws_route_table.biblioteca_public_rt.id
 }
 
 # Security Group para a aplicação
 resource "aws_security_group" "biblioteca_sg" {
   name_prefix = "${var.project_name}-sg"
-  vpc_id      = aws_vpc.biblioteca_vpc.id
+  vpc_id      = data.aws_vpc.selected.id
   description = "Security group for Biblioteca application"
   
   # SSH
@@ -273,8 +235,8 @@ resource "aws_instance" "biblioteca_server" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
   key_name               = data.aws_key_pair.biblioteca_key.key_name
-  vpc_security_group_ids = [aws_security_group.biblioteca_sg.id]
-  subnet_id              = aws_subnet.biblioteca_public_subnet.id
+  vpc_security_group_ids = [aws_security_group.biblioteca_sg.id] # This SG is still created by TF
+  subnet_id              = data.aws_subnet.selected.id
   
   user_data = local.user_data
   
@@ -308,5 +270,5 @@ resource "aws_eip" "biblioteca_eip" {
     Name = "${var.project_name}-eip"
   }
   
-  depends_on = [aws_internet_gateway.biblioteca_igw]
+  # depends_on is no longer needed as the IGW is part of the pre-existing VPC
 }
