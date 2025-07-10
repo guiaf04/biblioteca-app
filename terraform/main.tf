@@ -171,7 +171,6 @@ resource "aws_security_group" "biblioteca_sg" {
 }
 
 # Key Pair para acesso SSH
-# Agora espera o arquivo .pub gerado no pipeline (a partir do secret da chave privada)
 resource "aws_key_pair" "biblioteca_key" {
   key_name   = "${var.project_name}-key"
   public_key = file("${path.module}/biblioteca-key.pub") # arquivo gerado no pipeline
@@ -180,19 +179,108 @@ resource "aws_key_pair" "biblioteca_key" {
   }
 }
 
-# Remova a role IAM e o instance profile se não for necessário para sua aplicação.
-# Comente ou remova os blocos abaixo se não precisar de permissões especiais para EC2 acessar ECR ou CloudWatch:
-# resource "aws_iam_role" "biblioteca_ec2_role" { ... }
-# resource "aws_iam_role_policy" "biblioteca_ecr_policy" { ... }
-# resource "aws_iam_instance_profile" "biblioteca_profile" { ... }
+import {
+  to = aws_ecr_repository.biblioteca_backend
+  id = "biblioteca-backend"
+}
 
-# Na resource "aws_instance", remova a linha do instance profile:
+import {
+  to = aws_ecr_repository.biblioteca_frontend
+  id = "biblioteca-frontend"
+}
+
+# ECR Repositories
+resource "aws_ecr_repository" "biblioteca_backend" {
+  name                 = "biblioteca-backend"
+  image_tag_mutability = "MUTABLE"
+  
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+  
+  tags = {
+    Name = "${var.project_name}-backend-ecr"
+  }
+}
+
+resource "aws_ecr_repository" "biblioteca_frontend" {
+  name                 = "biblioteca-frontend"
+  image_tag_mutability = "MUTABLE"
+  
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+  
+  tags = {
+    Name = "${var.project_name}-frontend-ecr"
+  }
+}
+
+# ECR Lifecycle Policy
+resource "aws_ecr_lifecycle_policy" "biblioteca_backend_policy" {
+  repository = aws_ecr_repository.biblioteca_backend.name
+  
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep last 10 images"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["v"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 10
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_ecr_lifecycle_policy" "biblioteca_frontend_policy" {
+  repository = aws_ecr_repository.biblioteca_frontend.name
+  
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep last 10 images"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["v"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 10
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
+}
+
+# User Data script para configurar a instância
+locals {
+  user_data = base64encode(templatefile("${path.module}/user-data.sh", {
+    aws_region        = var.aws_region
+    backend_image     = var.backend_image
+    frontend_image    = var.frontend_image
+    ecr_backend_repo  = aws_ecr_repository.biblioteca_backend.repository_url
+    ecr_frontend_repo = aws_ecr_repository.biblioteca_frontend.repository_url
+  }))
+}
+
+# Instância EC2
 resource "aws_instance" "biblioteca_server" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
   key_name               = aws_key_pair.biblioteca_key.key_name
   vpc_security_group_ids = [aws_security_group.biblioteca_sg.id]
   subnet_id              = aws_subnet.biblioteca_public_subnet.id
+  
+  user_data = local.user_data
   
   root_block_device {
     volume_type = "gp3"
@@ -225,27 +313,5 @@ resource "aws_eip" "biblioteca_eip" {
   }
   
   depends_on = [aws_internet_gateway.biblioteca_igw]
-}
-
-resource "aws_ecr_repository" "biblioteca_backend" {
-  name                 = "biblioteca-backend"
-  image_tag_mutability = "MUTABLE"
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-  tags = {
-    Name = "biblioteca-backend-ecr"
-  }
-}
-
-resource "aws_ecr_repository" "biblioteca_frontend" {
-  name                 = "biblioteca-frontend"
-  image_tag_mutability = "MUTABLE"
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-  tags = {
-    Name = "biblioteca-frontend-ecr"
-  }
 }
 

@@ -142,12 +142,6 @@ jobs:
           -var="frontend_image=${{ needs.build-and-push.outputs.frontend-image }}" \
           -out=tfplan
           
-    - name: Import repositories
-      working-directory: ./terraform
-      run: | 
-        terraform import aws_ecr_repository.biblioteca_backend 793331656229.dkr.ecr.us-east-1.amazonaws.com/biblioteca-backend
-        terraform import aws_ecr_repository.biblioteca_frontend 793331656229.dkr.ecr.us-east-1.amazonaws.com/biblioteca-frontend
-
     - name: Terraform Apply
       id: terraform
       working-directory: ./terraform
