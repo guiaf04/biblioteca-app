@@ -116,7 +116,14 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
         aws-region: ${{ env.AWS_REGION }}
-        
+
+    # Gera a chave pública a partir do secret da chave privada
+    - name: Generate SSH public key from secret
+      run: |
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > terraform/biblioteca-key.pem
+        chmod 600 terraform/biblioteca-key.pem
+        ssh-keygen -y -f terraform/biblioteca-key.pem > terraform/biblioteca-key.pub
+
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:

@@ -171,171 +171,29 @@ resource "aws_security_group" "biblioteca_sg" {
 }
 
 # Key Pair para acesso SSH
+# Agora espera o arquivo .pub gerado no pipeline (a partir do secret da chave privada)
 resource "aws_key_pair" "biblioteca_key" {
   key_name   = "${var.project_name}-key"
-  public_key = var.ssh_public_key
-  
+  public_key = file("${path.module}/biblioteca-key.pub") # arquivo gerado no pipeline
   tags = {
     Name = "${var.project_name}-key-pair"
   }
 }
 
-# IAM Role para a instância EC2
-resource "aws_iam_role" "biblioteca_ec2_role" {
-  name = "${var.project_name}-ec2-role"
-  
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
-  })
-  
-  tags = {
-    Name = "${var.project_name}-ec2-role"
-  }
-}
+# Remova a role IAM e o instance profile se não for necessário para sua aplicação.
+# Comente ou remova os blocos abaixo se não precisar de permissões especiais para EC2 acessar ECR ou CloudWatch:
+# resource "aws_iam_role" "biblioteca_ec2_role" { ... }
+# resource "aws_iam_role_policy" "biblioteca_ecr_policy" { ... }
+# resource "aws_iam_instance_profile" "biblioteca_profile" { ... }
 
-# IAM Policy para ECR access
-resource "aws_iam_role_policy" "biblioteca_ecr_policy" {
-  name = "${var.project_name}-ecr-policy"
-  role = aws_iam_role.biblioteca_ec2_role.id
-  
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "ecr:GetAuthorizationToken",
-          "ecr:BatchCheckLayerAvailability",
-          "ecr:GetDownloadUrlForLayer",
-          "ecr:BatchGetImage"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-          "logs:DescribeLogStreams"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-# Instance Profile
-resource "aws_iam_instance_profile" "biblioteca_profile" {
-  name = "${var.project_name}-instance-profile"
-  role = aws_iam_role.biblioteca_ec2_role.name
-  
-  tags = {
-    Name = "${var.project_name}-instance-profile"
-  }
-}
-
-# ECR Repositories
-resource "aws_ecr_repository" "biblioteca_backend" {
-  name                 = "biblioteca-backend"
-  image_tag_mutability = "MUTABLE"
-  
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-  
-  tags = {
-    Name = "${var.project_name}-backend-ecr"
-  }
-}
-
-resource "aws_ecr_repository" "biblioteca_frontend" {
-  name                 = "biblioteca-frontend"
-  image_tag_mutability = "MUTABLE"
-  
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-  
-  tags = {
-    Name = "${var.project_name}-frontend-ecr"
-  }
-}
-
-# ECR Lifecycle Policy
-resource "aws_ecr_lifecycle_policy" "biblioteca_backend_policy" {
-  repository = aws_ecr_repository.biblioteca_backend.name
-  
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Keep last 10 images"
-        selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["v"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 10
-        }
-        action = {
-          type = "expire"
-        }
-      }
-    ]
-  })
-}
-
-resource "aws_ecr_lifecycle_policy" "biblioteca_frontend_policy" {
-  repository = aws_ecr_repository.biblioteca_frontend.name
-  
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Keep last 10 images"
-        selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["v"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 10
-        }
-        action = {
-          type = "expire"
-        }
-      }
-    ]
-  })
-}
-
-# User Data script para configurar a instância
-locals {
-  user_data = base64encode(templatefile("${path.module}/user-data.sh", {
-    aws_region        = var.aws_region
-    backend_image     = var.backend_image
-    frontend_image    = var.frontend_image
-    ecr_backend_repo  = aws_ecr_repository.biblioteca_backend.repository_url
-    ecr_frontend_repo = aws_ecr_repository.biblioteca_frontend.repository_url
-  }))
-}
-
-# Instância EC2
+# Na resource "aws_instance", remova a linha do instance profile:
 resource "aws_instance" "biblioteca_server" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
   key_name               = aws_key_pair.biblioteca_key.key_name
   vpc_security_group_ids = [aws_security_group.biblioteca_sg.id]
   subnet_id              = aws_subnet.biblioteca_public_subnet.id
-  iam_instance_profile   = aws_iam_instance_profile.biblioteca_profile.name
-  
+
   user_data = local.user_data
   
   root_block_device {
