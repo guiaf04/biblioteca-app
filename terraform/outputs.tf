@@ -45,16 +45,6 @@ output "key_pair_name" {
   value       = aws_key_pair.biblioteca_key.key_name
 }
 
-output "iam_role_arn" {
-  description = "ARN of the IAM role"
-  value       = aws_iam_role.biblioteca_ec2_role.arn
-}
-
-output "iam_instance_profile_name" {
-  description = "Name of the IAM instance profile"
-  value       = aws_iam_instance_profile.biblioteca_profile.name
-}
-
 output "ecr_backend_repository_url" {
   description = "URL of the backend ECR repository"
   value       = aws_ecr_repository.biblioteca_backend.repository_url

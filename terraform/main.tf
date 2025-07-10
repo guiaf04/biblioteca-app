@@ -193,8 +193,6 @@ resource "aws_instance" "biblioteca_server" {
   key_name               = aws_key_pair.biblioteca_key.key_name
   vpc_security_group_ids = [aws_security_group.biblioteca_sg.id]
   subnet_id              = aws_subnet.biblioteca_public_subnet.id
-
-  user_data = local.user_data
   
   root_block_device {
     volume_type = "gp3"

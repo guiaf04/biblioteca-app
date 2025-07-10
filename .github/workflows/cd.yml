@@ -133,7 +133,13 @@ jobs:
     - name: Terraform Init
       working-directory: ./terraform
       run: terraform init
-      
+
+    - name: Import repositories
+      working-directory: ./terraform
+      run: | 
+        terraform import aws_ecr_repository.biblioteca_backend 793331656229.dkr.ecr.us-east-1.amazonaws.com/biblioteca-backend
+        terraform import aws_ecr_repository.biblioteca_frontend 793331656229.dkr.ecr.us-east-1.amazonaws.com/biblioteca-frontend
+
     - name: Terraform Plan
       working-directory: ./terraform
       run: |
