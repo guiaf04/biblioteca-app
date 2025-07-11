@@ -18,14 +18,6 @@
     mode: '0644'
   notify: restart application
 
-- name: Create deployment script
-  template:
-    src: deploy.sh.j2
-    dest: "{{ app_directory }}/deploy.sh"
-    owner: "{{ app_user }}"
-    group: "{{ app_user }}"
-    mode: '0755'
-
 - name: Create monitoring script
   template:
     src: monitor.sh.j2
@@ -164,17 +156,3 @@
       minute: "0"
       hour: "3"
       job: "docker system prune -f >> /var/log/biblioteca/cleanup.log 2>&1"
-
-- name: Create systemd service for application
-  template:
-    src: biblioteca.service.j2
-    dest: /etc/systemd/system/biblioteca.service
-    mode: '0644'
-  notify: restart docker
-
-- name: Enable and start biblioteca service
-  systemd:
-    name: biblioteca
-    enabled: yes
-    state: started
-    daemon_reload: yes
