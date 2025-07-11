@@ -219,17 +219,6 @@ resource "aws_ecr_lifecycle_policy" "biblioteca_frontend_policy" {
   })
 }
 
-# User Data script para configurar a instância
-locals {
-  user_data = base64encode(templatefile("${path.module}/user-data.sh", {
-    aws_region        = var.aws_region
-    backend_image     = var.backend_image
-    frontend_image    = var.frontend_image
-    ecr_backend_repo  = aws_ecr_repository.biblioteca_backend.repository_url
-    ecr_frontend_repo = aws_ecr_repository.biblioteca_frontend.repository_url
-  }))
-}
-
 # Instância EC2
 resource "aws_instance" "biblioteca_server" {
   ami                    = data.aws_ami.ubuntu.id
@@ -237,8 +226,6 @@ resource "aws_instance" "biblioteca_server" {
   key_name               = data.aws_key_pair.biblioteca_key.key_name
   vpc_security_group_ids = [aws_security_group.biblioteca_sg.id] # This SG is still created by TF
   subnet_id              = data.aws_subnet.selected.id
-  
-  user_data = local.user_data
   
   root_block_device {
     volume_type = "gp3"
