@@ -29,8 +29,16 @@
           - htop
           - tree
           - git
+          - python3-pip
         state: present
       tags: [setup]
+
+    - name: Install Python dependencies for Ansible Docker modules
+      pip:
+        name:
+          - docker
+        state: present
+      tags: [setup, docker]
 
   tasks:
     - name: Include Docker installation tasks

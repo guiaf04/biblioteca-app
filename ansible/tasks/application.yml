@@ -48,8 +48,6 @@
   become_user: "{{ app_user }}"
   environment:
     HOME: "/home/{{ app_user }}"
-  failed_when: false
-  changed_when: false
 
 - name: Pull Docker images
   docker_image:
@@ -60,20 +58,20 @@
     - "{{ backend_image }}"
     - "{{ frontend_image }}"
   become_user: "{{ app_user }}"
-  failed_when: false
 
 - name: Stop existing containers
-  docker_compose:
-    project_src: "{{ app_directory }}"
-    state: absent
+  ansible.builtin.shell:
+    cmd: docker compose down
+  args:
+    chdir: "{{ app_directory }}"
   become_user: "{{ app_user }}"
   ignore_errors: yes
 
 - name: Start application containers
-  docker_compose:
-    project_src: "{{ app_directory }}"
-    state: present
-    pull: yes
+  ansible.builtin.shell:
+    cmd: docker compose up -d
+  args:
+    chdir: "{{ app_directory }}"
   become_user: "{{ app_user }}"
 
 - name: Wait for backend to be healthy

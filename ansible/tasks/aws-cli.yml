@@ -43,15 +43,7 @@
   debug:
     msg: "AWS CLI version: {{ aws_version.stdout }}"
 
-- name: Configure AWS CLI region
-  shell: |
-    aws configure set region {{ aws_region }}
-    aws configure set output json
-  become_user: "{{ app_user }}"
-  environment:
-    HOME: "/home/{{ app_user }}"
-
-- name: Create AWS credentials directory
+- name: Create AWS config directory for application user
   file:
     path: "/home/{{ app_user }}/.aws"
     state: directory
@@ -59,13 +51,32 @@
     group: "{{ app_user }}"
     mode: '0700'
 
-- name: Configure AWS CLI for application user
-  shell: |
-    aws configure set region {{ aws_region }}
-    aws configure set output json
-  become_user: "{{ app_user }}"
-  environment:
-    HOME: "/home/{{ app_user }}"
+- name: Configure AWS CLI config file for application user
+  template:
+    content: |
+      [default]
+      region = {{ aws_region }}
+      output = json
+    dest: "/home/{{ app_user }}/.aws/config"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0600'
+
+- name: Configure AWS CLI credentials file from pipeline secrets
+  template:
+    content: |
+      [default]
+      aws_access_key_id = {{ aws_access_key_id }}
+      aws_secret_access_key = {{ aws_secret_access_key }}
+      {% if aws_session_token is defined and aws_session_token != '' %}
+      aws_session_token = {{ aws_session_token }}
+      {% endif %}
+    dest: "/home/{{ app_user }}/.aws/credentials"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0600'
+  when: aws_access_key_id is defined and aws_access_key_id != ""
+  no_log: true
 
 - name: Test AWS CLI functionality (if credentials are available)
   shell: aws sts get-caller-identity
@@ -85,4 +96,3 @@
   debug:
     msg: "AWS CLI installed but credentials not configured. Configure via IAM role or environment variables."
   when: aws_test.rc != 0
-
