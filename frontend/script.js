@@ -1,5 +1,6 @@
 // Configuração da API
-const API_BASE_URL = 'http://localhost:8080/api';
+// A URL da API é construída dinamicamente usando o hostname da página atual.
+const API_BASE_URL = `http://${window.location.hostname}:8080/api`;
 
 // Estado da aplicação
 let currentEditId = null;
@@ -370,4 +371,3 @@ window.addEventListener('unhandledrejection', function(e) {
         showToast('Erro de conexão com o servidor. Verifique se o backend está rodando.', 'error');
     }
 });
-
