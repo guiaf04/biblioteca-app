@@ -203,11 +203,6 @@
         - { regexp: '^#?Protocol', line: 'Protocol 2' }
       notify: restart ssh
 
-    - name: Restart SSH service
-      systemd:
-        name: ssh
-        state: restarted
-
 - name: Set up log monitoring
   block:
     - name: Create security log monitoring script
@@ -417,7 +412,7 @@
       echo "=== Docker Security ==="
       if command -v docker &> /dev/null; then
           echo "Docker version: $(docker --version)"
-          echo "Running containers: $(docker ps --format 'table {{.Names}}\t{{.Status}}')"
+          echo "Running containers: $(docker ps --format 'table {% raw %}{{.Names}}\t{{.Status}}{% endraw %}')"
       else
           echo "Docker not installed"
       fi
@@ -428,10 +423,3 @@
       echo "========================================="
     dest: /usr/local/bin/security-audit.sh
     mode: '0755'
-
-  handlers:
-    - name: restart ssh
-      systemd:
-        name: ssh
-        state: restarted
-

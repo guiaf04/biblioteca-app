@@ -104,6 +104,11 @@
       service:
         name: ufw
         state: restarted
+
+    - name: restart ssh
+      systemd:
+        name: ssh
+        state: restarted
     
     - name: restart application
       shell: |

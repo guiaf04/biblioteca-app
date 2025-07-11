@@ -216,7 +216,7 @@
       # Docker stats
       echo ""
       echo "=== Docker Container Stats ==="
-      docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
+      docker stats --no-stream --format "table {% raw %}{{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}{% endraw %}"
       
       # Application metrics
       echo ""
@@ -317,4 +317,3 @@
     owner: "{{ app_user }}"
     group: "{{ app_user }}"
     mode: '0755'
-
