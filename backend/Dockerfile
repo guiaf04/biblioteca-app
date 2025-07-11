@@ -28,6 +28,10 @@ RUN groupadd -r biblioteca && useradd -r -g biblioteca biblioteca
 # Definir diretório de trabalho
 WORKDIR /app
 
+# Instala o curl para que o healthcheck do Docker Compose funcione
+RUN apt-get update && apt-get install -y curl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copiar JAR da aplicação do estágio builder
 COPY --from=builder /app/target/*.jar app.jar
 
