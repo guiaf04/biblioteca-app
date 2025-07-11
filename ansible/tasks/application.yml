@@ -107,7 +107,7 @@
   failed_when: false
 
 - name: Display container status
-  command: docker-compose ps
+  command: docker compose ps
   args:
     chdir: "{{ app_directory }}"
   register: container_status
@@ -138,7 +138,7 @@
           notifempty
           create 644 {{ app_user }} {{ app_user }}
           postrotate
-              /usr/bin/docker-compose -f {{ app_directory }}/docker-compose.yml restart > /dev/null 2>&1 || true
+              /usr/bin/docker compose -f {{ app_directory }}/docker-compose.yml restart > /dev/null 2>&1 || true
           endscript
       }
     dest: /etc/logrotate.d/biblioteca
@@ -178,4 +178,3 @@
     enabled: yes
     state: started
     daemon_reload: yes
-

@@ -96,7 +96,6 @@
     - name: restart application
       shell: |
         cd {{ app_directory }}
-        docker-compose down
-        docker-compose up -d
+        docker compose down
+        docker compose up -d
       become_user: "{{ app_user }}"
-
