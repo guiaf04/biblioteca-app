@@ -10,12 +10,14 @@ terraform {
     }
   }
   
-  # Backend para armazenar estado do Terraform (descomente e configure conforme necessário)
-  # backend "s3" {
-  #   bucket = "biblioteca-terraform-state"
-  #   key    = "terraform.tfstate"
-  #   region = "us-east-1"
-  # }
+  # Backend S3 para armazenar o estado do Terraform de forma remota e segura.
+  # IMPORTANTE: Substitua 'seu-bucket-de-estado-terraform-unico' pelo nome do bucket S3 que você criou.
+  backend "s3" {
+    bucket         = "biblioteca-app-terraform-tarc"
+    key            = "production/terraform.tfstate" # O caminho do arquivo de estado dentro do bucket
+    region         = "us-east-1"
+    dynamodb_table = "biblioteca-terraform-locks" # O nome da sua tabela DynamoDB para state locking
+  }
 }
 
 # Configuração do provider AWS
