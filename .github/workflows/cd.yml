@@ -82,7 +82,10 @@ jobs:
         docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_BACKEND }}:latest
         
         echo "image=${IMAGE_URI}" >> $GITHUB_OUTPUT
-        
+
+        echo "Verifying backend image in ECR..."
+        aws ecr describe-images --repository-name ${{ env.ECR_REPOSITORY_BACKEND }} --image-ids imageTag=${IMAGE_TAG} --region ${{ env.AWS_REGION }}
+
     - name: Build and push frontend image
       id: build-frontend
       run: |
@@ -98,6 +101,8 @@ jobs:
         
         echo "image=${IMAGE_URI}" >> $GITHUB_OUTPUT
 
+        echo "Verifying frontend image in ECR..."
+        aws ecr describe-images --repository-name ${{ env.ECR_REPOSITORY_FRONTEND }} --image-ids imageTag=${IMAGE_TAG} --region ${{ env.AWS_REGION }}
 
   # Job para deploy da infraestrutura com Terraform
   deploy-infrastructure:

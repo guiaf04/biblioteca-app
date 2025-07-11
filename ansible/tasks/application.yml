@@ -50,14 +50,14 @@
     HOME: "/home/{{ app_user }}"
 
 - name: Pull Docker images
-  docker_image:
-    name: "{{ item }}"
-    source: pull
-    force_source: yes
+  ansible.builtin.command:
+    cmd: "docker pull {{ item }}"
   loop:
     - "{{ backend_image }}"
     - "{{ frontend_image }}"
   become_user: "{{ app_user }}"
+  register: pull_result
+  changed_when: "'Status: Downloaded newer image' in pull_result.stdout"
 
 - name: Stop existing containers
   ansible.builtin.shell:
@@ -67,9 +67,9 @@
   become_user: "{{ app_user }}"
   ignore_errors: yes
 
-- name: Start application containers
+- name: Start backend container
   ansible.builtin.shell:
-    cmd: docker compose up -d
+    cmd: docker compose up -d --no-deps backend
   args:
     chdir: "{{ app_directory }}"
   become_user: "{{ app_user }}"
@@ -83,7 +83,13 @@
   retries: 12
   delay: 10
   until: backend_health.status == 200
-  failed_when: false
+
+- name: Start frontend container (and other services)
+  ansible.builtin.shell:
+    cmd: docker compose up -d --no-deps frontend
+  args:
+    chdir: "{{ app_directory }}"
+  become_user: "{{ app_user }}"
 
 - name: Wait for frontend to be accessible
   uri:

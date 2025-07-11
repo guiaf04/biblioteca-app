@@ -52,7 +52,7 @@
     mode: '0700'
 
 - name: Configure AWS CLI config file for application user
-  template:
+  copy:
     content: |
       [default]
       region = {{ aws_region }}
@@ -63,7 +63,7 @@
     mode: '0600'
 
 - name: Configure AWS CLI credentials file from pipeline secrets
-  template:
+  copy:
     content: |
       [default]
       aws_access_key_id = {{ aws_access_key_id }}
