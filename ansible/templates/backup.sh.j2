@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Script de backup da aplicação Biblioteca
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+log "💾 Iniciando backup da aplicação Biblioteca..."
+
+BACKUP_DIR="/var/backups/biblioteca"
+TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+BACKUP_FILE="$BACKUP_DIR/biblioteca-backup-$TIMESTAMP.tar.gz"
+
+mkdir -p $BACKUP_DIR
+
+# Parar containers para garantir consistência dos dados (opcional)
+# log "🛑 Parando containers para backup..."
+# docker-compose -f {{ app_directory }}/docker-compose.yml stop
+
+# Fazer backup dos volumes Docker
+log "📦 Fazendo backup dos volumes Docker..."
+docker run --rm -v biblioteca-data:/data -v $BACKUP_DIR:/backup ubuntu tar -czvf /backup/volume-backup-$TIMESTAMP.tar.gz /data
+
+# Fazer backup dos arquivos da aplicação
+log "📁 Fazendo backup dos arquivos da aplicação..."
+tar -czvf $BACKUP_FILE -C {{ app_directory }} .
+
+# Iniciar containers novamente (se parados)
+# log "🚀 Iniciando containers novamente..."
+# docker-compose -f {{ app_directory }}/docker-compose.yml start
+
+log "✅ Backup concluído: $BACKUP_FILE"
+
+# Limpar backups antigos (manter os últimos 7 dias)
+log "🧹 Limpando backups antigos..."
+find $BACKUP_DIR -type f -name "biblioteca-backup-*.tar.gz" -mtime +7 -delete
+find $BACKUP_DIR -type f -name "volume-backup-*.tar.gz" -mtime +7 -delete
+
+log "🎉 Backup e limpeza concluídos!"
+
